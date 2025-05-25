@@ -22,3 +22,19 @@ fsm_rt_t statemachine_init(
 
     return fsm_rt_cpl;
 }
+
+void statemachine_updatestatus(fsm_cb_t *fsm,enum fsm_sig sig)
+{
+    if(sig == NULL_USE_SING)
+    {
+        return;
+    }
+    for(uint8_t i = 0;i<fsm->arr_size;i++)
+    {
+        if(sig == fsm->arr[i].sig)
+        {
+            fsm->chState = fsm->arr[i].status;
+            break;
+        }
+    }
+}

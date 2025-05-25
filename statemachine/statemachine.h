@@ -13,7 +13,7 @@
 
  #ifndef _STATEMACHINE_H
  #define _STATEMACHINE_H
- 
+ #include "stdint.h"
  /**
   * @enum fsm_rt_t
   * @brief State machine return codes
@@ -35,7 +35,13 @@
      EXIT,         ///< Exit state handler      
      USER          ///< First available user-defined state
  };
- 
+enum fsm_sig{
+    NULL_USE_SING = 0,
+};
+struct sig_sta_arr{
+    enum fsm_sig sig;
+    int16_t      status;
+};
  /* Forward declarations */
  typedef struct fsm_cb fsm_cb_t;
  typedef fsm_rt_t (*fsm_t)(fsm_cb_t*);
@@ -49,6 +55,8 @@
      unsigned char chState; ///< Current state
      unsigned int count;    ///< General purpose counter
      const char* name;      ///< State machine name (for debugging)
+     struct sig_sta_arr *arr;
+     int8_t arr_size;
      void* pdata;          ///< User data pointer
      fsm_t fsm;            ///< Current state handler function
  };
@@ -82,4 +90,6 @@ fsm_rt_t statemachine_init(fsm_cb_t *fsm,
                   const char *name,
                   fsm_t initial_state,
                   void *context);
+void statemachine_updatestatus(fsm_cb_t *fsm,enum fsm_sig sig);
+
  #endif /* _STATEMACHINE_H */
