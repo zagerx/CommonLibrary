@@ -14,6 +14,7 @@
  #ifndef _STATEMACHINE_H
  #define _STATEMACHINE_H
  #include "stdint.h"
+#include <stdint.h>
  /**
   * @enum fsm_rt_t
   * @brief State machine return codes
@@ -33,14 +34,26 @@
  enum {
      ENTER = 0,    ///< Entry state handler
      EXIT,         ///< Exit state handler      
-     USER          ///< First available user-defined state
+     USER_STATUS          ///< First available user-defined state
  };
-enum fsm_sig{
-    NULL_USE_SING = 0,
+/**
+ * enum fsm_signal - Finite State Machine signal identifiers
+ * @NULL_USE_SING: Null signal (unused/reserved)
+ * @USER_SIG: Base value for user-defined signals
+ *
+ * Note: User signals should be defined consecutively after USER_SIG
+ */
+ enum fsm_signal {
+    NULL_USE_SING = 0,  /* Reserved null signal identifier */
+    USER_SIG            /* First available user-defined signal */
 };
-struct sig_sta_arr{
-    enum fsm_sig sig;
-    int16_t      status;
+/**
+ * @struct state_transition_map
+ * @brief Signal-to-state transition mapping table entry
+ */
+ struct state_transition_map {
+    enum fsm_signal signal;    ///< Input signal that triggers transition
+    int16_t target_state;   ///< Resulting state after signal processing
 };
  /* Forward declarations */
  typedef struct fsm_cb fsm_cb_t;
@@ -55,9 +68,14 @@ struct sig_sta_arr{
      unsigned char chState; ///< Current state
      unsigned int count;    ///< General purpose counter
      const char* name;      ///< State machine name (for debugging)
-     struct sig_sta_arr *arr;
-     int8_t arr_size;
-     void* pdata;          ///< User data pointer
+     enum fsm_signal sig;
+     struct state_transition_map *transition_table;  ///< Signal-state mapping table
+     int8_t transition_table_size;                  ///< Number of entries in table
+ 
+     void* p1;          ///< User data pointer
+     int8_t p1_len;
+     void* p2;
+     int8_t p2_len;
      fsm_t fsm;            ///< Current state handler function
  };
  
@@ -86,10 +104,12 @@ struct sig_sta_arr{
                              } while(0)
  
  /* Function prototypes */
-fsm_rt_t statemachine_init(fsm_cb_t *fsm, 
-                  const char *name,
-                  fsm_t initial_state,
-                  void *context);
-void statemachine_updatestatus(fsm_cb_t *fsm,enum fsm_sig sig);
+ fsm_rt_t statemachine_init(
+    fsm_cb_t *fsm, 
+    const char *name,
+    fsm_t initial_state,
+    void *context,struct state_transition_map* arr,int8_t arr_size);
+    void statemachine_updatestatus(fsm_cb_t *fsm,enum fsm_signal sig);
+    void statemachine_setsig(fsm_cb_t *fsm,enum fsm_signal sig);
 
  #endif /* _STATEMACHINE_H */
