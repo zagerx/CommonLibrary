@@ -1,266 +1,197 @@
 #include "s_trajectory_planning.h"
-#include "debuglog.h"
-#include <stdint.h>
-#include <stdio.h>
-#include <stdbool.h>
 #include <math.h>
-#include "string.h"
-#include "stdlib.h"
-#define EPSILON 0.01f // 用于浮点数比较的容差
-enum
+#include <string.h>
+#define EPSILON 0.01f
+#define MILLISEC_TO_SEC 0.001f
+
+// 内部状态获取函数
+static trajectory_actor_state_t s_velocity_actory_get_state(s_in_t *pthis);
+
+/**
+ * @brief 速度规划函数 - 200ms指令周期调用
+ * @param pthis 轨迹规划器实例
+ * @param new_targe 新的目标速度
+ * @return 1: 开始新规划, 0: 无变化或忙碌
+ */
+int16_t s_velocity_planning(s_in_t* pthis, float new_targe)
 {
-    RISING = 0,
-    T1 = 1,
-    T2 = 2,
-    T3 = 3,
-    FALLING = 8,
-    IDLE = 9,
-    INIT = 10,
-    FAIL = 11,
-    S_SUCCESS = 12,
-};
-/*==========================================================================================
- * @brief        S型轨迹规划
- * @FuncName
- * @param        object
- * @param        new_targe
- * @version      0.1
---------------------------------------------------------------------------------------------*/
-static void s_shape_path_planning(void *object, float new_targe)
+    s_in_t *s = pthis;
+    float T1,T2, total_time;
+    // 检查是否需要更新
+    if(fabsf(s->last_target - new_targe) < EPSILON) {
+        return 0;
+    }
+    
+    // 检查状态是否空闲
+    if(s_velocity_actory_get_state(pthis) != TRAJ_ACTOR_STATE_IDLE) {
+        return 0;
+    }
+    
+    // 计算速度差
+    float diff = fabsf(new_targe - s->cur_output);
+    
+    // 根据速度差选择参数
+    if(diff < 1.67f) { // 1.67 rpm/s ≈ 100 rpm/min
+        s->acc = 10.0f;
+        s->jerk = 150.0f;
+    } else if(diff > 50.0f) { // 50 rpm/s ≈ 3000 rpm/min
+        s->acc = s->max_acc;
+        s->jerk = s->max_jerk;
+    } else { // 1.67~50 rpm/s (100~3000 rpm/min)
+        s->acc = 50.0f;
+        s->jerk = 150.0f;
+    }
+    
+    // 计算方向
+    s->direction = (new_targe > s->cur_output) ? 1.0f : -1.0f;
+    
+    // 计算各阶段时间 (单位: 秒)
+    // 加加速/减减速阶段时间 T1 = T3
+    T1 = s->acc / s->jerk;
+    
+    // 匀加速阶段时间 T2 = (Δv - a*T1)/a
+    // 总速度变化量 Δv = a*(T1 + T2)
+    T2 = (diff / s->acc) - T1;
+    
+    // 如果T2为负，使用两段式规划
+    if(T2 < 0) {
+        T2 = 0;
+        T1 = sqrtf(diff / s->jerk);
+    }
+    
+    // 总时间
+    total_time = T1 + T2 + T1; // T1 + T2 + T3
+    
+    // 计算各阶段结束速度
+    s->V[0] = s->cur_output; // 初始速度
+    s->V[1] = s->V[0] + s->direction * (0.5f * s->jerk * T1 * T1); // T1结束速度
+    s->V[2] = s->V[1] + s->direction * (s->acc * T2); // T2结束速度
+    s->V[3] = s->V[2] + s->direction * (s->acc * T1 - 0.5f * s->jerk * T1 * T1); // T3结束速度
+    
+    // 转换为毫秒时间 (用于状态机)
+    s->Ts[0] = (uint16_t)(T1 * 1000.0f); // T1阶段时间(ms)
+    s->Ts[1] = (uint16_t)(T2 * 1000.0f); // T2阶段时间(ms)
+    s->Ts[2] = (uint16_t)(T1 * 1000.0f); // T3阶段时间(ms)
+    s->Ts[3] = 0; // 未使用
+    
+    // 重置状态机
+    s->tau = 0;
+    s->elapsed_time = 0.0f;
+    s->last_target = new_targe;
+    s->actor_state = TRAJ_ACTOR_STATE_START;
+    
+    return 1;
+}
+
+/**
+ * @brief 速度生成器 - 1ms周期调用
+ * @param pthis 轨迹规划器实例
+ * @return 当前速度值
+ */
+float s_velocity_actory(s_in_t *pthis)
 {
-    enum
-    {
-        INIT,
-        STEP1,
-        STEP2,
-        STEP3,
-        PLAN_FAIL,
-        PLAN_SUCESS,
-    };
-    s_in_t *s = (s_in_t *)object;
-    float diff;
-    float v0, v1, v2, v3;
-    float temp_delte;
-    float temp_ja;
-    uint16_t T2;
-    uint16_t T1;
-    int16_t plan_state = INIT;
-    /*规划更新Ja*/
-    plan_state = INIT;
-    while (1)
-    {
-        switch (plan_state)
-        {
-        case INIT:
-            diff = new_targe - s->last_target;
-            s->V0 = s->cur_output;
-            v0 = s->cur_output;
-            temp_ja = s->max_ja;
-            plan_state = STEP1;
-            break;
-        case STEP1://更新规划时间
-            T2 = s->Ts_Max / 2;
-            T1 = (s->Ts_Max - T2) / 2;
-            if (diff > EPSILON)
-            {
-                s->Ts[1] = s->Ts[3] = T1; // 加速/减速阶段 时间需要保持一致
-                s->Ts[2] = T2;
-            }
-            plan_state = STEP2;
-            break;
-        case STEP2:
-            if (temp_ja < 0.0f) // 规划失败
-            {
-                plan_state = PLAN_FAIL;
-            }
-            temp_ja -= 0.01f;
-            s->Ja = (diff > EPSILON) ? temp_ja : -temp_ja;
-            v1 = v0 + (0.5f) * (s->Ja) * (T1) * (T1);
-            v2 = v1 + (T1) * (s->Ja) * (T2);
-            v3 = v2 + T1 * s->Ja * T1 - 0.5f * s->Ja * T1 * T1;
-            temp_delte = (diff > EPSILON) ? (v3 - new_targe) : -(v3 - new_targe);
-            if (temp_delte < EPSILON) // 规划成功
-            {
-                plan_state = PLAN_SUCESS; // 规划成功
-                break;
-            }
-            break;
-        case PLAN_FAIL:
-            return;
-            break;
-        case PLAN_SUCESS:
-            s->cout = 0;
+    s_in_t *s = pthis;
+    float retval = s->cur_output; // 默认返回当前速度
+    float t; // 当前阶段内的时间(秒)
+    
+    switch (s->actor_state) {
+        case TRAJ_ACTOR_STATE_START:
+            s->V[0] = s->cur_output;
             s->tau = 0;
-            s->actor_state  = RISING;
-            plan_state = INIT; // 规划成功
-            return;
+            s->elapsed_time = 0.0f;
+            s->actor_state = TRAJ_ACTOR_STATE_T1;
+            // 继续执行T1状态
+            
+        case TRAJ_ACTOR_STATE_T1:
+            t = s->tau * MILLISEC_TO_SEC;
+            retval = s->V[0] + s->direction * (0.5f * s->jerk * t * t);
+            
+            if (s->tau >= s->Ts[0]) {
+                // T1阶段结束
+                s->actor_state = TRAJ_ACTOR_STATE_T2;
+                s->tau = 0;
+            } else {
+                s->tau++;
+            }
             break;
+            
+        case TRAJ_ACTOR_STATE_T2:
+            t = s->tau * MILLISEC_TO_SEC;
+            retval = s->V[1] + s->direction * (s->acc * t);
+            
+            if (s->tau >= s->Ts[1]) {
+                // T2阶段结束
+                s->actor_state = TRAJ_ACTOR_STATE_T3;
+                s->tau = 0;
+            } else {
+                s->tau++;
+            }
+            break;
+            
+        case TRAJ_ACTOR_STATE_T3:
+            t = s->tau * MILLISEC_TO_SEC;
+            retval = s->V[2] + s->direction * (s->acc * t - 0.5f * s->jerk * t * t);
+            
+            if (s->tau >= s->Ts[2]) {
+                // T3阶段结束
+                s->actor_state = TRAJ_ACTOR_STATE_END;
+            } else {
+                s->tau++;
+            }
+            break;
+            
+        case TRAJ_ACTOR_STATE_END:
+            // 确保精确到达目标速度
+            retval = s->last_target;
+            s->cur_output = retval;
+            s->actor_state = TRAJ_ACTOR_STATE_IDLE;
+            break;
+            
+        case TRAJ_ACTOR_STATE_IDLE:
+            // 保持当前速度
+            retval = s->cur_output;
+            break;
+            
         default:
             break;
-        }
     }
-    return;
+    
+    // 更新当前速度
+    s->cur_output = retval;
+    s->elapsed_time += MILLISEC_TO_SEC;
+    
+    return retval;
 }
-/*==========================================================================================
- * @brief        S型插补(指数函数)
- * @FuncName     s_type_interpolation
- * @param        object
- * @param        new_targe
- * @return       float
- * @version      0.1
- *
- * --------------------------------------------------------------------------------------------*/
-float s_type_interpolation(void *object, float new_targe)
+
+/**
+ * @brief 获取当前状态
+ * @param pthis 轨迹规划器实例
+ * @return 当前状态
+ */
+static trajectory_actor_state_t s_velocity_actory_get_state(s_in_t *pthis)
 {
-    float out_val;
-    s_in_t *s = (s_in_t *)object;
-
-    if (s->last_target != new_targe) // 路径规划
-    {
-        s_shape_path_planning(s, (new_targe));
-        s->last_target = new_targe;
-    }
-
-    switch (s->actor_state )
-    {
-    case RISING:
-    case FALLING:
-        s->actor_state  = T1;
-    case T1:
-        s->V[1] = s->V0 + (0.5f) * (s->Ja) * (s->tau) * (s->tau);
-        out_val = s->V[1];
-        if (s->cout++ < s->Ts[1]) // 第一阶段未完成
-        {
-            s->tau++;
-            break;
-        }
-        s->cout = 0;
-        s->tau = 0;
-        s->actor_state  = T2;
-        break;
-
-    case T2:
-        s->V[2] = s->V[1] + (s->Ts[1]) * (s->Ja) * (s->tau);
-        ;
-        out_val = s->V[2];
-        if (s->cout++ < s->Ts[2])
-        {
-            s->tau++;
-            break;
-        }
-        s->cout = 0;
-        s->tau = 0;
-        s->actor_state  = T3;
-        break;
-    case T3:
-        s->V[3] = s->V[2] + s->Ts[1] * s->Ja * s->tau - 0.5f * s->Ja * s->tau * s->tau;
-        out_val = s->V[3];
-        if (s->cout++ < s->Ts[3])
-        {
-            s->tau++;
-            break;
-        }
-        s->cout = 0;
-        s->tau = 0;
-        s->actor_state  = IDLE;
-        break;
-    case IDLE:
-        return;
-        break;
-
-    default:
-        break;
-    }
-    s->cur_output = out_val;
-    return out_val;
+    return pthis->actor_state;
 }
-void s_type_interpolation_init(void *object, float a_max,float Ja_max, uint16_t T_max)
+
+/**
+ * @brief 初始化S型轨迹规划器
+ * @param object 轨迹规划器实例
+ * @param a_max 最大加速度
+ * @param Ja_max 最大加加速度
+ * @param a_min 最小加速度
+ * @param Ja_min 最小加加速度
+ */
+void s_type_interpolation_init(void *object, float a_max, float Ja_max, float a_min, float Ja_min)
 {
     s_in_t *s = (s_in_t *)object;
-    s->actor_state  = IDLE;
+    s->actor_state  = TRAJ_ACTOR_STATE_IDLE;
     s->max_acc = a_max;
-    s->max_ja = Ja_max;
+    s->max_jerk = Ja_max;
+    s->min_acc = a_min;
+    s->min_jerk = Ja_min;
     s->cur_output = 0.0f;
-    s->Ts_Max = T_max;
+    s->last_target = 0.0f;
+    s->tau = 0;
+    memset(s->Ts, 0, sizeof(s->Ts));
+    memset(s->V, 0, sizeof(s->V));
 }
-void s_type_interpolation_deinit(void *object)
-{
-    memset(object, 0, sizeof(s_in_t));
-}
-
-#include "taskmodule.h"
-#if 1
-void test(void)
-{
-    enum
-    {
-        INIT,
-        STEP1,
-        STEP2,
-        STEP3,
-        STEP4,
-        STEP5,
-    };
-    static s_in_t test_s_val;
-    static float target = 0.0f;
-    static uint8_t flag = 0;
-    static uint8_t cnt = 0;
-    static uint8_t status_ = INIT;
-    switch (status_)
-    {
-    case INIT:
-        /* code */
-        target = 100.0f;
-        s_type_interpolation_init(&test_s_val,20.0f, 20.0f, 40);
-        status_ = STEP1;
-        break;
-    case STEP1:
-        if (cnt++ > 200)
-        {
-            cnt = 0;
-            target += 100.0f;
-            if (target > 300.0f)
-            {
-                status_ = STEP2;
-                break;
-            }
-        }
-        break;
-    case STEP2:
-        if (cnt++ > 200)
-        {
-            cnt = 0;
-            target -= 100.0f;
-            if (target < -100.0f)
-            {
-                status_ = STEP3;
-                break;
-            }
-        }
-        break;
-    case STEP3:
-        if (cnt++ > 200)
-        {
-            cnt = 0;
-            target = 800.0f;
-            status_ = STEP4;
-        }
-        break;
-    case STEP4:
-        if (cnt++ > 200)
-        {
-            cnt = 0;
-            target = -800.0f;
-            status_ = STEP5;
-        }
-        break;
-    default:
-        break;
-    }
-    float output;
-    output = s_type_interpolation(&test_s_val, target);
-    return 0;
-}
-board_task(test)
-#endif
-
