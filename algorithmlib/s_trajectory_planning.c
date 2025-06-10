@@ -16,7 +16,7 @@ static trajectory_actor_state_t s_velocity_actory_get_state(s_in_t *pthis);
 int16_t s_velocity_planning(s_in_t* pthis, float new_targe)
 {
     s_in_t *s = pthis;
-    float T1,T2, total_time;
+    float T1,T2, total_time,initial_accel;
     // 检查是否需要更新
     if(fabsf(s->last_target - new_targe) < EPSILON) {
         return 0;
@@ -57,8 +57,13 @@ int16_t s_velocity_planning(s_in_t* pthis, float new_targe)
     if(T2 < 0) {
         T2 = 0;
         T1 = sqrtf(diff / s->jerk);
+        // 两段式规划：减加速阶段初始加速度 = jerk * T1
+        initial_accel = s->jerk * T1;
+    } else {
+        // 三段式规划：减加速阶段初始加速度 = s->acc
+        initial_accel = s->acc;
     }
-    
+
     // 总时间
     total_time = T1 + T2 + T1; // T1 + T2 + T3
     
@@ -66,7 +71,7 @@ int16_t s_velocity_planning(s_in_t* pthis, float new_targe)
     s->V[0] = s->cur_output; // 初始速度
     s->V[1] = s->V[0] + s->direction * (0.5f * s->jerk * T1 * T1); // T1结束速度
     s->V[2] = s->V[1] + s->direction * (s->acc * T2); // T2结束速度
-    s->V[3] = s->V[2] + s->direction * (s->acc * T1 - 0.5f * s->jerk * T1 * T1); // T3结束速度
+    s->V[3] = s->V[2] + s->direction * (initial_accel * T1 - 0.5f * s->jerk * T1 * T1);
     
     // 转换为毫秒时间 (用于状态机)
     s->Ts[0] = (uint16_t)(T1 * 1000.0f); // T1阶段时间(ms)
@@ -93,7 +98,16 @@ float s_velocity_actory(s_in_t *pthis)
     s_in_t *s = pthis;
     float retval = s->cur_output; // 默认返回当前速度
     float t; // 当前阶段内的时间(秒)
+    float initial_accel = 0.0f;
     
+    // 确定减加速阶段的初始加速度
+    if(s->Ts[1] == 0) {
+        // 两段式规划：初始加速度 = jerk * T1
+        initial_accel = s->jerk * (s->Ts[0] * 0.001f);
+    } else {
+        // 三段式规划：初始加速度 = acc
+        initial_accel = s->acc;
+    }    
     switch (s->actor_state) {
         case TRAJ_ACTOR_STATE_START:
             s->V[0] = s->cur_output;
@@ -130,10 +144,14 @@ float s_velocity_actory(s_in_t *pthis)
             
         case TRAJ_ACTOR_STATE_T3:
             t = s->tau * MILLISEC_TO_SEC;
-            retval = s->V[2] + s->direction * (s->acc * t - 0.5f * s->jerk * t * t);
+            
+            // 使用正确的初始加速度
+            retval = s->V[2] + s->direction * 
+                    (initial_accel * t - 0.5f * s->jerk * t * t);
             
             if (s->tau >= s->Ts[2]) {
-                // T3阶段结束
+                // T3阶段结束，精确设置速度
+                retval = s->V[3];
                 s->actor_state = TRAJ_ACTOR_STATE_END;
             } else {
                 s->tau++;
