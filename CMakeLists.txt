@@ -7,6 +7,7 @@ zephyr_library_sources(
 	${CMAKE_CURRENT_SOURCE_DIR}/algorithmlib/filter.c               
 	${CMAKE_CURRENT_SOURCE_DIR}/algorithmlib/s_posi_planning.c      
 	${CMAKE_CURRENT_SOURCE_DIR}/algorithmlib/s_trajectory_planning.c
+	${CMAKE_CURRENT_SOURCE_DIR}/algorithmlib/fault_monitoring_module.c
 	${CMAKE_CURRENT_SOURCE_DIR}/statemachine/statemachine.c
 )
 

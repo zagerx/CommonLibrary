@@ -23,5 +23,6 @@ void fmm_init(fmm_t *fmm, float ulv, float dlv, uint16_t fault_limit_count,
 	      uint16_t recovery_limit_count, void (*cbx)(void));
 void fmm_reset(fmm_t *fmm);
 int fmm_monitoring(fmm_t *fmm, float cur_value);
+int fmm_readstatus(fmm_t *fmm);
 
 #endif

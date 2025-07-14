@@ -34,9 +34,9 @@ int fmm_monitoring(fmm_t *fmm, float cur_value)
 		// 故障状态处理
 		if (fmm->down_limit_value < cur_value && cur_value < fmm->up_limit_value) {
 			if (++fmm->recovery_count >= fmm->recovery_limit_count) {
-				fmm->fault_status = 0;
+				fmm->fault_status = FMM_NORMAL;
 				fmm->recovery_count = 0; // 仅重置恢复计数
-				return FMM_NORMAL;	 // 恢复完成
+				return FMM_NORMAL;       // 恢复完成
 			}
 			return FMM_RECOVERING; // 恢复中
 		} else {
@@ -47,7 +47,7 @@ int fmm_monitoring(fmm_t *fmm, float cur_value)
 		// 正常状态处理
 		if (cur_value < fmm->down_limit_value || cur_value > fmm->up_limit_value) {
 			if (++fmm->fault_count >= fmm->fault_limit_count) {
-				fmm->fault_status = 1;
+				fmm->fault_status = FMM_FAULT;
 				fmm->fault_count = 0; // 重置故障计数
 				fmm->recovery_count = 0;
 				if (fmm->cbx) {
@@ -61,4 +61,11 @@ int fmm_monitoring(fmm_t *fmm, float cur_value)
 			return FMM_NORMAL;
 		}
 	}
+}
+int fmm_readstatus(fmm_t *fmm)
+{
+	if (!fmm) {
+		return FMM_INVALID;
+	}
+	return fmm->fault_status;
 }
