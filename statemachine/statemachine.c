@@ -29,27 +29,21 @@
  * - Transition table
  * - Context pointer
  */
-fsm_rt_t statemachine_init(
-    fsm_cb_t *fsm,
-    const char *name,
-    fsm_t initial_state,
-    void *context, struct state_transition_map *map, int8_t map_size)
+fsm_rt_t statemachine_init(fsm_cb_t *obj, const char *name, fsm_t initial_state, void *context,
+			   struct state_transition_map *map, int8_t map_size)
 {
-    if (!fsm || !initial_state)
-    {
-        return fsm_rt_err;
-    }
+	if (!obj || !initial_state) {
+		return fsm_rt_err;
+	}
 
-    fsm->cycle = 0;
-    fsm->chState = ENTER;
-    fsm->count = 0;
-    fsm->name = name;
-    fsm->p1 = context;
-    fsm->fsm = initial_state;
-    fsm->transition_table = map;
-    fsm->transition_table_size = map_size;
-    fsm->sig = NULL_USE_SING;
-    return fsm_rt_cpl;
+	obj->chState = ENTER;
+	obj->name = name;
+	obj->p1 = context;
+	obj->current_state = initial_state;
+	obj->transition_table = map;
+	obj->transition_table_size = map_size;
+	obj->sig = NULL_USE_SING;
+	return fsm_rt_cpl;
 }
 
 /**
@@ -60,20 +54,17 @@ fsm_rt_t statemachine_init(
  * Searches transition table for matching signal and updates state if found.
  * No action taken for NULL_USE_SING signals.
  */
-void statemachine_updatestatus(fsm_cb_t *fsm, enum fsm_signal sig)
+void statemachine_updatestatus(fsm_cb_t *obj, enum fsm_signal sig)
 {
-    if (sig == NULL_USE_SING)
-    {
-        return;
-    }
-    for (uint8_t i = 0; i < fsm->transition_table_size; i++)
-    {
-        if (sig == fsm->transition_table[i].signal)
-        {
-            fsm->chState = fsm->transition_table[i].target_state;
-            break;
-        }
-    }
+	if (sig == NULL_USE_SING) {
+		return;
+	}
+	for (uint8_t i = 0; i < obj->transition_table_size; i++) {
+		if (sig == obj->transition_table[i].signal) {
+			obj->chState = obj->transition_table[i].target_state;
+			break;
+		}
+	}
 }
 
 /**
@@ -83,7 +74,7 @@ void statemachine_updatestatus(fsm_cb_t *fsm, enum fsm_signal sig)
  *
  * Stores signal which will be handled in next state machine cycle.
  */
-void statemachine_setsig(fsm_cb_t *fsm, enum fsm_signal sig)
+void statemachine_setsig(fsm_cb_t *obj, enum fsm_signal sig)
 {
-    fsm->sig = sig;
+	obj->sig = sig;
 }
