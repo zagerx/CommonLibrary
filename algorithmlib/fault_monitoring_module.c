@@ -36,7 +36,7 @@ int fmm_monitoring(fmm_t *fmm, float cur_value)
 			if (++fmm->recovery_count >= fmm->recovery_limit_count) {
 				fmm->fault_status = FMM_NORMAL;
 				fmm->recovery_count = 0; // 仅重置恢复计数
-				return FMM_NORMAL;       // 恢复完成
+				return FMM_NORMAL;	 // 恢复完成
 			}
 			return FMM_RECOVERING; // 恢复中
 		} else {

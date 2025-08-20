@@ -1,0 +1,8 @@
+
+#// clang-format off
+config COMMONLIBRARY_ENABLE
+    bool "Enable motor library"
+    default n  # 默认禁用
+    help
+      Enable motor control library
+#// clang-format on

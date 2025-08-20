@@ -1,6 +1,7 @@
 # Copyright (c) 2021 Teslabs Engineering S.L.
 # SPDX-License-Identifier: Apache-2.0
 
+if(CONFIG_COMMONLIBRARY_ENABLE)
 
 zephyr_library_sources(
  	${CMAKE_CURRENT_SOURCE_DIR}/algorithmlib/pid.c                  
@@ -16,3 +17,4 @@ zephyr_include_directories(
     statemachine
 )
 
+endif()
